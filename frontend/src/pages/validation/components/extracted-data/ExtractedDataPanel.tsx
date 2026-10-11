@@ -12,7 +12,7 @@ import {
   ChevronLeft,
   Info,
 } from 'lucide-react';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type {
   ExtractedData,
   ExtractedField,
@@ -238,6 +238,57 @@ function ExtractedDataPanel({
   const hasFields = (fields && fields.length > 0) || (texts && texts.length > 0);
   const showTabs = hasFields || (tables && tables.length > 1);
 
+  // Tab strip: single scrollable row so many tables never wrap and eat vertical space
+  const tabListRef = useRef<HTMLDivElement>(null);
+  const [tabScroll, setTabScroll] = useState({ overflowing: false, atStart: true, atEnd: true });
+
+  const updateTabScroll = useCallback(() => {
+    const el = tabListRef.current;
+    if (!el) return;
+    const overflowing = el.scrollWidth > el.clientWidth + 1;
+    const atStart = el.scrollLeft <= 1;
+    const atEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 1;
+    setTabScroll((prev) =>
+      prev.overflowing === overflowing && prev.atStart === atStart && prev.atEnd === atEnd
+        ? prev
+        : { overflowing, atStart, atEnd }
+    );
+  }, []);
+
+  useEffect(() => {
+    const el = tabListRef.current;
+    if (!el) return;
+    updateTabScroll();
+    el.addEventListener('scroll', updateTabScroll, { passive: true });
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updateTabScroll) : null;
+    ro?.observe(el);
+    return () => {
+      el.removeEventListener('scroll', updateTabScroll);
+      ro?.disconnect();
+    };
+  }, [updateTabScroll, showTabs, tables?.length, hasFields]);
+
+  // Keep the selected tab visible (e.g. when the table changes from elsewhere)
+  useEffect(() => {
+    const el = tabListRef.current;
+    if (!el || typeof el.scrollTo !== 'function') return;
+    const active = el.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+    if (!active) return;
+    const left = active.offsetLeft;
+    const right = left + active.offsetWidth;
+    if (left < el.scrollLeft) {
+      el.scrollTo({ left: Math.max(0, left - 8), behavior: 'smooth' });
+    } else if (right > el.scrollLeft + el.clientWidth) {
+      el.scrollTo({ left: right - el.clientWidth + 8, behavior: 'smooth' });
+    }
+  }, [activeTableId, activeView, tables?.length]);
+
+  const scrollTabs = (direction: -1 | 1) => {
+    const el = tabListRef.current;
+    if (!el || typeof el.scrollBy !== 'function') return;
+    el.scrollBy({ left: direction * el.clientWidth * 0.6, behavior: 'smooth' });
+  };
+
   return (
     <div
       className="h-full w-full rounded-lg border border-base-300 bg-base-200 p-4 text-left shadow-sm flex flex-col"
@@ -245,7 +296,7 @@ function ExtractedDataPanel({
       onMouseLeave={() => setIsMouseInside(false)}
     >
       {/* Toolbar */}
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <div className="flex items-center gap-3">
           <h2 className="text-base font-bold text-base-content tracking-wide uppercase">
             EXTRACTED DATA
@@ -263,7 +314,7 @@ function ExtractedDataPanel({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <button
             onClick={() => {
               onEditModeChange?.(!isEditMode);
@@ -298,10 +349,10 @@ function ExtractedDataPanel({
             onIndentColumnChange &&
             indentColumnOptions.length > 1 &&
             activeView === 'table' && (
-              <label className="flex items-center gap-1.5 text-xs text-base-content/70">
+              <label className="flex shrink-0 items-center gap-2 whitespace-nowrap text-xs text-base-content/70">
                 Indent by
                 <select
-                  className="select select-bordered select-xs rounded-lg"
+                  className="select select-bordered select-sm h-8 min-h-0 min-w-[11rem] max-w-[16rem] rounded-xl pl-3 pr-8 text-xs text-base-content"
                   value={extractedData.itemColumnKey}
                   onChange={(e) => onIndentColumnChange(e.target.value)}
                 >
@@ -334,66 +385,92 @@ function ExtractedDataPanel({
 
       {/* Unified Tablist */}
       {showTabs && (
-        <div
-          role="tablist"
-          aria-label="Views on this page"
-          className="mb-4 flex flex-wrap gap-1 border-b border-base-300 pb-2"
-        >
-          {hasFields && (
+        <div className="mb-4 flex shrink-0 items-center gap-1 border-b border-base-300 pb-2">
+          {tabScroll.overflowing && (
             <button
-              role="tab"
               type="button"
-              aria-selected={activeView === 'fields'}
-              onClick={() => setActiveView('fields')}
-              className={`btn btn-sm h-8 min-h-0 gap-1.5 rounded-lg text-xs ${
-                activeView === 'fields'
-                  ? 'btn-primary text-base-100'
-                  : 'btn-ghost text-base-content/70 hover:bg-base-300/50'
-              }`}
+              aria-label="Scroll tabs left"
+              disabled={tabScroll.atStart}
+              onClick={() => scrollTabs(-1)}
+              className="btn btn-ghost btn-xs btn-square h-8 min-h-0 w-8 shrink-0 rounded-lg text-base-content/70"
             >
-              Document Details
-              <span className="opacity-70 font-normal">
-                {(fields?.length || 0) + (texts?.length || 0)} items
-              </span>
+              <ChevronLeft className="w-4 h-4" />
             </button>
           )}
-
-          {tables && tables.length > 0 ? (
-            tables.map((t) => (
+          <div
+            ref={tabListRef}
+            role="tablist"
+            aria-label="Views on this page"
+            className="relative flex min-w-0 flex-1 flex-nowrap gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {hasFields && (
               <button
-                key={t.id}
                 role="tab"
                 type="button"
-                aria-selected={activeView === 'table' && t.id === activeTableId}
-                onClick={() => {
-                  setActiveView('table');
-                  onSelectTable?.(t.id);
-                }}
-                className={`btn btn-sm h-8 min-h-0 gap-1.5 rounded-lg text-xs ${
-                  activeView === 'table' && t.id === activeTableId
+                aria-selected={activeView === 'fields'}
+                onClick={() => setActiveView('fields')}
+                className={`btn btn-sm h-8 min-h-0 shrink-0 gap-1.5 whitespace-nowrap rounded-lg text-xs ${
+                  activeView === 'fields'
                     ? 'btn-primary text-base-100'
                     : 'btn-ghost text-base-content/70 hover:bg-base-300/50'
                 }`}
               >
-                {t.label}
+                Document Details
                 <span className="opacity-70 font-normal">
-                  {t.rowCount} {t.rowCount === 1 ? 'row' : 'rows'}
+                  {(fields?.length || 0) + (texts?.length || 0)} items
                 </span>
               </button>
-            ))
-          ) : (
+            )}
+
+            {tables && tables.length > 0 ? (
+              tables.map((t) => (
+                <button
+                  key={t.id}
+                  role="tab"
+                  type="button"
+                  title={t.label}
+                  aria-selected={activeView === 'table' && t.id === activeTableId}
+                  onClick={() => {
+                    setActiveView('table');
+                    onSelectTable?.(t.id);
+                  }}
+                  className={`btn btn-sm h-8 min-h-0 shrink-0 gap-1.5 whitespace-nowrap rounded-lg text-xs ${
+                    activeView === 'table' && t.id === activeTableId
+                      ? 'btn-primary text-base-100'
+                      : 'btn-ghost text-base-content/70 hover:bg-base-300/50'
+                  }`}
+                >
+                  <span className="max-w-[12rem] truncate">{t.label}</span>
+                  <span className="opacity-70 font-normal">
+                    {t.rowCount} {t.rowCount === 1 ? 'row' : 'rows'}
+                  </span>
+                </button>
+              ))
+            ) : (
+              <button
+                role="tab"
+                type="button"
+                aria-selected={activeView === 'table'}
+                onClick={() => setActiveView('table')}
+                className={`btn btn-sm h-8 min-h-0 shrink-0 gap-1.5 whitespace-nowrap rounded-lg text-xs ${
+                  activeView === 'table'
+                    ? 'btn-primary text-base-100'
+                    : 'btn-ghost text-base-content/70 hover:bg-base-300/50'
+                }`}
+              >
+                Table Data
+              </button>
+            )}
+          </div>
+          {tabScroll.overflowing && (
             <button
-              role="tab"
               type="button"
-              aria-selected={activeView === 'table'}
-              onClick={() => setActiveView('table')}
-              className={`btn btn-sm h-8 min-h-0 gap-1.5 rounded-lg text-xs ${
-                activeView === 'table'
-                  ? 'btn-primary text-base-100'
-                  : 'btn-ghost text-base-content/70 hover:bg-base-300/50'
-              }`}
+              aria-label="Scroll tabs right"
+              disabled={tabScroll.atEnd}
+              onClick={() => scrollTabs(1)}
+              className="btn btn-ghost btn-xs btn-square h-8 min-h-0 w-8 shrink-0 rounded-lg text-base-content/70"
             >
-              Table Data
+              <ChevronRight className="w-4 h-4" />
             </button>
           )}
         </div>
@@ -489,7 +566,7 @@ function ExtractedDataPanel({
                           >
                             {column.replace(/_/g, ' ')}
                           </span>
-                          {isIndentColumn && (
+                          {isEditMode && isIndentColumn && (
                             <span
                               className="badge badge-primary badge-outline badge-xs text-[9px]"
                               title="Rows are indented from this column"
