@@ -20,7 +20,7 @@ import type {
   TableTab,
 } from '../../../../models/TableData';
 import { getConfidenceTier } from '../../../../utils/confidenceTier';
-import { canIndentIndex, isDerivedColumn } from '../../../../utils/indentEditor';
+import { canIndentIndex, isDerivedColumn, itemBandDepth } from '../../../../utils/indentEditor';
 import { parseFieldId } from '../../../../utils/tableOperations';
 import ExtractedFieldsSection from './ExtractedFieldsSection';
 import type { ValidationFileGroup } from '../../../../utils/fileGrouping';
@@ -142,6 +142,13 @@ function ExtractedDataPanel({
     }
   }, [hoveredOverlayIds, isMouseInside]);
 
+  // Item-band slots deeper than a row's own indent level are empty by definition:
+  // editCell() ignores edits there, so they must not open an editor at all.
+  const isCellEditable = (row: { _indentLevel?: number }, column: string): boolean => {
+    const bandDepth = itemBandDepth(extractedData, column);
+    return bandDepth === null || bandDepth <= (row._indentLevel ?? 0);
+  };
+
   const handleCellClick = (fieldId: string, initialValue: string) => {
     if (!isEditMode) return;
     setEditingCellId(fieldId);
@@ -183,14 +190,18 @@ function ExtractedDataPanel({
       const colIdx = columns.indexOf(column);
       const rowIdx = rows.findIndex((r) => String(r._id) === rowId);
 
-      let nextColIdx = colIdx + 1;
+      // Advance to the next EDITABLE cell (skips the empty indent slots)
+      let nextColIdx = colIdx;
       let nextRowIdx = rowIdx;
-
-      if (nextColIdx >= columns.length) {
-        nextColIdx = 0;
-        nextRowIdx = rowIdx + 1;
+      for (;;) {
+        nextColIdx += 1;
+        if (nextColIdx >= columns.length) {
+          nextColIdx = 0;
+          nextRowIdx += 1;
+        }
+        if (nextRowIdx >= rows.length) return;
+        if (isCellEditable(rows[nextRowIdx], columns[nextColIdx])) break;
       }
-      if (nextRowIdx >= rows.length) return;
 
       const nextRow = rows[nextRowIdx];
       const nextColumn = columns[nextColIdx];
@@ -690,6 +701,7 @@ function ExtractedDataPanel({
                         const safeId = fieldId.replace(/:/g, '-');
                         const derived = isDerivedColumn(extractedData, column);
                         const isEditing = editingCellId === fieldId;
+                        const editable = isCellEditable(row, column);
                         const displayValue =
                           !onCellEdit && localEdits[fieldId] !== undefined
                             ? localEdits[fieldId]
@@ -699,7 +711,7 @@ function ExtractedDataPanel({
                           <td
                             key={column}
                             id={`cell-${safeId}`}
-                            className={`p-2 break-words whitespace-normal hover:bg-warning/10 text-base-content text-[13px] transition-colors ${isEditMode ? 'cursor-pointer' : ''} ${
+                            className={`p-2 break-words whitespace-normal hover:bg-warning/10 text-base-content text-[13px] transition-colors ${isEditMode ? (editable ? 'cursor-pointer' : 'cursor-not-allowed') : ''} ${
                               isCellHighlighted && !isEditing
                                 ? 'bg-primary/20 text-base-content font-semibold rounded'
                                 : editedCells?.has(fieldId)
@@ -708,10 +720,15 @@ function ExtractedDataPanel({
                                     ? 'bg-base-300/20'
                                     : ''
                             }`}
+                            title={
+                              isEditMode && !editable
+                                ? "Empty: this row isn't indented this deep. Indent the row to put text here."
+                                : undefined
+                            }
                             onMouseEnter={() => onHover(fieldId)}
                             onMouseLeave={() => onHover(null)}
                             onClick={() => {
-                              if (!isEditing) handleCellClick(fieldId, displayValue);
+                              if (!isEditing && editable) handleCellClick(fieldId, displayValue);
                             }}
                           >
                             {isEditing ? (
