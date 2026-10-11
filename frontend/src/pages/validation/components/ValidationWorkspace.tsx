@@ -202,6 +202,24 @@ function ValidationWorkspace({
     });
   }, []);
 
+  const handleTableChange = useCallback(
+    (pageIndex: number, tableId: string) =>
+      handlePagesChange((prev) =>
+        prev.map((p, i) => (i === pageIndex ? switchActiveTable(p, tableId) : p))
+      ),
+    [handlePagesChange]
+  );
+
+  const navigation = useMemo(
+    () => ({
+      currentPageIndexRef,
+      pagesRef: extractedPagesRef,
+      onPageChange: handlePageIndexChange,
+      onTableChange: handleTableChange,
+    }),
+    [handlePageIndexChange, handleTableChange]
+  );
+
   // ── File Grouping & Scoped Navigation ────────────────────────────────────
   const fileGroups = useMemo(
     () => groupPagesByFiles(extractedPages, overlayPages, imageUrls, pageKeys, fileMetadata),
@@ -363,11 +381,7 @@ function ValidationWorkspace({
   // bounding box hover state — table field <-> document overlay sync,
   // plus carousel-driven page navigation via handleSlideChange
   const { hoveredTableFieldIds, hoveredDocumentOverlayIds, handleHover, handleSlideChange } =
-    useFieldHover(documentContext, {
-      currentPageIndexRef,
-      pagesRef: extractedPagesRef,
-      onPageChange: handlePageIndexChange,
-    });
+    useFieldHover(documentContext, navigation);
 
   // AI-suggestion propose/accept/reject flow (chat messages live here too,
   // since they only ever get created in response to accept/reject).

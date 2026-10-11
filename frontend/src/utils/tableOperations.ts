@@ -4,7 +4,7 @@
 // gets written back to (setDocuments vs setExtractedPages). Centralizing the
 // transform logic here means both call sites stay in sync automatically.
 
-import type { ExtractedPage } from '../models/TableData';
+import type { ExtractedPage, ExtractedRow } from '../models/TableData';
 import {
   restructure,
   subtreeEnd,
@@ -254,19 +254,43 @@ export function parseFieldId(fieldId: string): { rowId: string; column: string }
 
 // The bit that was copy-pasted verbatim in ProjectWorkspacePage's onHover,
 // ValidationPage's onHover, and ValidationPage's handleSlideChange.
+// Every table on the page: the one loaded into the grid first, then the parked ones.
+// Row ids are unique within a page (they embed the table id), so a row id identifies its table.
+function tablesOf(data: ExtractedPage): { tableId?: string; rows: ExtractedRow[] }[] {
+  return [{ tableId: data.tableId, rows: data.rows }, ...(data.otherTables ?? [])];
+}
+
+function findRow(data: ExtractedPage, rowId: string): ExtractedRow | undefined {
+  for (const t of tablesOf(data)) {
+    const row = t.rows.find((r) => String(r._id) === rowId);
+    if (row) return row;
+  }
+  return undefined;
+}
+
+/** Which table on this page holds the row behind `fieldId`? Undefined if none does. */
+export function findTableIdForField(
+  data: ExtractedPage | null | undefined,
+  fieldId: string
+): string | undefined {
+  if (!data) return undefined;
+  const { rowId } = parseFieldId(fieldId);
+  return tablesOf(data).find((t) => t.rows.some((r) => String(r._id) === rowId))?.tableId;
+}
+
 export function getOverlayIdForField(
   data: ExtractedPage | null | undefined,
   fieldId: string
 ): string | null {
   if (!data) return null;
   const { rowId, column } = parseFieldId(fieldId);
-  const row = data.rows.find((r) => String(r._id) === rowId);
-  return row?._cellKeyMap?.[column] ?? null;
+  // searches parked tables too, so a highlight resolves before (or without) switching tables
+  return findRow(data, rowId)?._cellKeyMap?.[column] ?? null;
 }
 
 export function getCellValue(data: ExtractedPage | null | undefined, fieldId: string): string {
   if (!data) return '';
   const { rowId, column } = parseFieldId(fieldId);
-  const row = data.rows.find((r) => String(r._id) === rowId);
+  const row = findRow(data, rowId);
   return row ? String(row[column] ?? '') : '';
 }
