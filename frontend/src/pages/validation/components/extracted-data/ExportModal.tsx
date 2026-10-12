@@ -12,6 +12,12 @@ import {
   downloadBulkXLSX,
   type BulkExportItem,
 } from '../../../../services/xlsxDownloadService';
+import {
+  applyFieldMapping,
+  DOCUMENT_TYPES,
+  type DocumentType,
+} from '../../../../utils/fieldMapping';
+import { FIELD_MAPPING_PRESETS } from '../../../../utils/fieldMappingPresets';
 interface ExportModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -48,6 +54,7 @@ export function ExportModal({
   );
 
   const [exportError, setExportError] = useState<string | null>(null);
+  const [mappingType, setMappingType] = useState<DocumentType | ''>('');
   const [selectedTemplates, setSelectedTemplates] = useState({
     csv_default: true,
     csv_simple: false,
@@ -94,10 +101,12 @@ export function ExportModal({
   };
 
   const handleExtract = () => {
+    setExportError(null);
     const xlsxItems: BulkExportItem[] = [];
     const baseFilename = customFilename.trim() || 'export';
+    const jobs: { data: ExtractedData; suffix: string }[] = [];
 
-    const performExport = (data: ExtractedData, suffix: string) => {
+    const exportOne = (data: ExtractedData, suffix: string) => {
       if (selectedTemplates.csv_default)
         exportExtractedDataAsCSV(data, `${baseFilename}${suffix}_default.csv`);
       if (selectedTemplates.csv_simple)
@@ -109,6 +118,11 @@ export function ExportModal({
       if (selectedTemplates.xlsx_default) {
         xlsxItems.push({ name: `${baseFilename}${suffix}_default`, data });
       }
+    };
+
+    // Collect first, so a mapping error stops the export before any file downloads.
+    const performExport = (data: ExtractedData, suffix: string) => {
+      jobs.push({ data, suffix });
     };
 
     if (!fileGroups) {
@@ -154,6 +168,19 @@ export function ExportModal({
         });
       }
     }
+
+    let mappedJobs: { data: ExtractedData; suffix: string }[];
+    try {
+      const mapping = mappingType ? FIELD_MAPPING_PRESETS[mappingType] : null;
+      mappedJobs = jobs.map((job) => ({
+        data: mapping ? applyFieldMapping(job.data, mapping) : job.data,
+        suffix: job.suffix,
+      }));
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : 'Could not apply the column mapping.');
+      return;
+    }
+    mappedJobs.forEach((job) => exportOne(job.data, job.suffix));
 
     if (selectedTemplates.xlsx_default && xlsxItems.length > 0) {
       try {
@@ -261,6 +288,30 @@ export function ExportModal({
                   </span>
                 )}
               </div>
+            </div>
+
+            {/* Column Mapping */}
+            <div className="bg-base-200/50 p-4 rounded-xl border border-base-200 flex-shrink-0">
+              <label className="label px-0 pt-0 pb-1">
+                <span className="label-text font-bold text-base-content/80 text-xs uppercase tracking-wider">
+                  Column Mapping
+                </span>
+              </label>
+              <select
+                className="select select-bordered select-sm w-full font-medium shadow-sm"
+                value={mappingType}
+                onChange={(e) => setMappingType(e.target.value as DocumentType | '')}
+              >
+                <option value="">None (keep original columns)</option>
+                {DOCUMENT_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {type.charAt(0).toUpperCase() + type.slice(1)}
+                  </option>
+                ))}
+              </select>
+              <span className="text-[10px] text-base-content/60 mt-1 block">
+                Renames and reorders columns for the chosen document type.
+              </span>
             </div>
 
             {/* Formats List - Horizontal Rows */}
