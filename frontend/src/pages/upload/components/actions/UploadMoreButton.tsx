@@ -1,18 +1,26 @@
 import { useRef } from "react";
 import type { ChangeEvent } from "react";
-import { filterValidFiles } from "../dropzone/dropZoneUtils";
+import { Upload } from "lucide-react";
+import { filterValidFiles, partitionBySize, MAX_FILE_SIZE_MB } from "../dropzone/dropZoneUtils";
 
 type UploadMoreButtonProps = {
   onFilesSelected: (files: File[]) => void;
+  onError?: (msg: string) => void;
 };
 
-function UploadMoreButton({ onFilesSelected }: UploadMoreButtonProps) {
+function UploadMoreButton({ onFilesSelected, onError }: UploadMoreButtonProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   function handleUploadMoreChange(event: ChangeEvent<HTMLInputElement>) {
     const validFiles = filterValidFiles(event.target.files);
-    if (validFiles.length > 0) {
-      onFilesSelected(validFiles);
+    const { accepted, rejected } = partitionBySize(validFiles);
+    
+    if (rejected.length > 0 && onError) {
+      onError(`One or more files exceed the ${MAX_FILE_SIZE_MB}MB limit.`);
+    }
+
+    if (accepted.length > 0) {
+      onFilesSelected(accepted);
     }
 
     if (inputRef.current) {
@@ -31,10 +39,11 @@ function UploadMoreButton({ onFilesSelected }: UploadMoreButtonProps) {
         onChange={handleUploadMoreChange}
       />
       <button
+        className="btn btn-sm btn-outline gap-1.5"
         type="button"
         onClick={() => inputRef.current?.click()}
-        className="btn btn-outline w-full rounded-xl"
       >
+        <Upload className="w-3.5 h-3.5" />
         Upload More
       </button>
     </>
