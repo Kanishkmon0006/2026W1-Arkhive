@@ -2,7 +2,7 @@ import './App.css';
 import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import { AuthProvider } from './context/AuthProvider';
 import { OcrProgressProvider } from './context/OcrProgressProvider';
-import OcrProgressPopup from './context/ocr-progress/OcrProgressPopup';
+import OcrProgressPopup from './components/ocr-progress/OcrProgressPopup';
 import { AuthGuard } from './components/auth/AuthGuard';
 import { RequireUser } from './components/auth/RequireUser';
 import LoginPage from './pages/login/LoginPage';
